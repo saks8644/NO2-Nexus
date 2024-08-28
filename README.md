@@ -1,6 +1,9 @@
 # NO2 Nexus
 
 **NO2 Nexus** is an advanced machine learning model designed to transform coarse-resolution satellite data into high-resolution maps of Nitrogen Dioxide (NO2) concentrations. By leveraging machine learning techniques, NO2 Nexus enhances air quality monitoring, offering detailed insights into NO2 distribution for researchers, policymakers, and urban planners.
+## Data Source
+
+The coarse-resolution spatial data for this model is obtained from Google Earth Engine's Sentinel-5P satellite. Specifically, the dataset used is the Nitrogen Dioxide (NO2) column number density, provided by the Sentinel-5P satellite's TROPOspheric Monitoring Instrument (TROPOMI).
 
 ## Features
 
