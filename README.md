@@ -4,8 +4,6 @@
 ## Data Source
 
 The coarse-resolution spatial data for this model is obtained from Google Earth Engine's Sentinel-5P satellite. Specifically, the dataset used is the Nitrogen Dioxide (NO2) column number density, provided by the Sentinel-5P satellite's TROPOspheric Monitoring Instrument (TROPOMI).
-![no2](https://github.com/user-attachments/assets/bc71b4e6-60bb-461c-a0ab-a5fd1d3befcd)     ![image](https://github.com/user-attachments/assets/42ef7b42-9e83-402e-8692-a8dee9d3cc9e)
-![image](https://github.com/user-attachments/assets/1817385d-9c07-4012-a1a6-7960d29e01c3)     ![image](https://github.com/user-attachments/assets/f5665c8c-4ad9-4870-a31b-083a60e8b93e)
 
 
 
@@ -50,9 +48,19 @@ Execute the Python script to preprocess the data, train the model, and generate 
 ## Visualizations
 The model generates the following visualizations:
 
-- Residual Plot: Displays residuals versus actual values to evaluate model errors.
-- Feature Importances: Shows the importance of each feature used in the model.
-- Prediction vs Actual Plot: Compares predicted values with actual values to assess model accuracy.
 - Fine Resolution NO2 Map: Provides a detailed map of predicted NO2 concentrations.
+  ![no2 plot](https://github.com/user-attachments/assets/a96bee29-81fb-4e12-ab38-5ed42bc5da4d)
+
+- Residual Plot: Displays residuals versus actual values to evaluate model errors.
+  ![residual plt](https://github.com/user-attachments/assets/722fee7d-2b45-450f-acb1-dbd906002fcd)
+
+- Feature Importances: Shows the importance of each feature used in the model.
+- ![feature imp](https://github.com/user-attachments/assets/5bf75ee2-bdf9-4d4c-8a30-571204052518)
+
+- Prediction vs Actual Plot: Compares predicted values with actual values to assess model accuracy.
+  ![pre vs act](https://github.com/user-attachments/assets/e75c2385-3dbc-45d5-b9cb-3da5d3b051f2)
+
+
+
 ## Contact
 For support, questions, or contributions, please contact sakshambalsane19@gmail.com.        
