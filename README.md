@@ -5,6 +5,7 @@
 
 The coarse-resolution spatial data for this model is obtained from Google Earth Engine's Sentinel-5P satellite. Specifically, the dataset used is the Nitrogen Dioxide (NO2) column number density, provided by the Sentinel-5P satellite's TROPOspheric Monitoring Instrument (TROPOMI).
 ![no2](https://github.com/user-attachments/assets/bc71b4e6-60bb-461c-a0ab-a5fd1d3befcd)
+![image](https://github.com/user-attachments/assets/645cbf4f-af29-43f7-8a71-d79818d2e1ac)
 
 ## Features
 
