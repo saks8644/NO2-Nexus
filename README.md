@@ -31,20 +31,20 @@ Run the Model:
 Execute the Python script to preprocess the data, train the model, and generate high-resolution NO2 maps: python no2_nexus.py
 ## The script performs the following tasks:
 
-- **Loads and preprocesses the TIFF file.
-- **Trains the Random Forest model with the data.
-- **Validates the model using metrics and generates visualizations.
-- **Produces a fine-resolution NO2 map and displays it.
+- Loads and preprocesses the TIFF file.
+- Trains the Random Forest model with the data.
+- Validates the model using metrics and generates visualizations.
+- Produces a fine-resolution NO2 map and displays it.
 ## Model Details
-- **File Path: Update the tif_file variable in the script with the path to your TIFF file.
-- **Temporal Features: The current setup is for the year 2019 and month 6. Adjust as needed for other time periods.
-- **Model Parameters: Default parameters for the Random Forest Regressor are used, but these can be modified in the code.
+- File Path: Update the tif_file variable in the script with the path to your TIFF file.
+- Temporal Features: The current setup is for the year 2019 and month 6. Adjust as needed for other time periods.
+- Model Parameters: Default parameters for the Random Forest Regressor are used, but these can be modified in the code.
 ## Visualizations
 The model generates the following visualizations:
 
-- **Residual Plot: Displays residuals versus actual values to evaluate model errors.
-- **Feature Importances: Shows the importance of each feature used in the model.
-- **Prediction vs Actual Plot: Compares predicted values with actual values to assess model accuracy.
-- **Fine Resolution NO2 Map: Provides a detailed map of predicted NO2 concentrations.
+- Residual Plot: Displays residuals versus actual values to evaluate model errors.
+- Feature Importances: Shows the importance of each feature used in the model.
+- Prediction vs Actual Plot: Compares predicted values with actual values to assess model accuracy.
+- Fine Resolution NO2 Map: Provides a detailed map of predicted NO2 concentrations.
 ## Contact
-For support, questions, or contributions, please contact your-sakshambalsane19@gmail.com.        
+For support, questions, or contributions, please contact sakshambalsane19@gmail.com.        
