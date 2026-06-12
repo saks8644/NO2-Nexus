@@ -3,7 +3,13 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .pipeline import NO2Downscaler, build_feature_matrix, load_csv_dataset
+from .pipeline import (
+    NO2Downscaler,
+    build_feature_matrix,
+    evaluate_models,
+    load_csv_dataset,
+    save_model_comparison,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -25,6 +31,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default="outputs", help="Directory for plots and CSV outputs.")
     parser.add_argument("--test-size", type=float, default=0.2, help="Evaluation split fraction.")
     parser.add_argument("--n-estimators", type=int, default=300, help="Number of Random Forest trees.")
+    parser.add_argument(
+        "--compare",
+        action="store_true",
+        help="Compare Linear Regression, spatial KNN, Random Forest, and Gradient Boosting baselines.",
+    )
+    parser.add_argument(
+        "--split",
+        choices=["random", "spatial"],
+        default="random",
+        help="Validation split strategy used for baseline comparison.",
+    )
     return parser.parse_args()
 
 
@@ -47,6 +64,18 @@ def main() -> None:
     print(f"MAE: {report.mae:.4f}")
     print(f"R2: {report.r2:.4f}")
     print(f"Diagnostics saved to: {Path(args.output_dir).resolve()}")
+
+    if args.compare:
+        comparison, predictions = evaluate_models(
+            features,
+            target,
+            split_strategy=args.split,
+            test_size=args.test_size,
+        )
+        save_model_comparison(comparison, predictions, Path(args.output_dir))
+        print("")
+        print(f"Baseline comparison ({args.split} split)")
+        print(comparison.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
 
 
 if __name__ == "__main__":

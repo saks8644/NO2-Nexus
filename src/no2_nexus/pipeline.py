@@ -8,8 +8,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.base import clone
+from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
+from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 
 
@@ -32,6 +37,19 @@ class ModelReport:
     train_rows: int
     test_rows: int
     feature_names: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class EvaluationResult:
+    """Evaluation summary for one model and one validation strategy."""
+
+    model_name: str
+    split_strategy: str
+    rmse: float
+    mae: float
+    r2: float
+    train_rows: int
+    test_rows: int
 
 
 def normalise_columns(frame: pd.DataFrame) -> pd.DataFrame:
@@ -92,6 +110,154 @@ def build_feature_matrix(
     return modelling_data[features], modelling_data[target_column]
 
 
+def compute_metrics(actual: pd.Series | np.ndarray, predicted: np.ndarray) -> dict[str, float]:
+    return {
+        "rmse": float(np.sqrt(mean_squared_error(actual, predicted))),
+        "mae": float(mean_absolute_error(actual, predicted)),
+        "r2": float(r2_score(actual, predicted)),
+    }
+
+
+def split_random(
+    features: pd.DataFrame,
+    target: pd.Series,
+    *,
+    test_size: float = 0.2,
+    random_state: int = 42,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
+    return train_test_split(
+        features,
+        target,
+        test_size=test_size,
+        random_state=random_state,
+    )
+
+
+def split_spatial_holdout(
+    features: pd.DataFrame,
+    target: pd.Series,
+    *,
+    latitude_column: str = "latitude",
+    longitude_column: str = "longitude",
+    test_size: float = 0.2,
+    random_state: int = 42,
+    grid_bins: int = 4,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
+    """Hold out complete lat/lon grid cells to reduce spatial leakage."""
+
+    if latitude_column not in features.columns or longitude_column not in features.columns:
+        raise ValueError(
+            "Spatial holdout requires latitude and longitude feature columns. "
+            "Pass --split random if coordinates are unavailable."
+        )
+
+    lat_bins = pd.qcut(features[latitude_column], q=grid_bins, labels=False, duplicates="drop")
+    lon_bins = pd.qcut(features[longitude_column], q=grid_bins, labels=False, duplicates="drop")
+    cells = (lat_bins.astype(str) + "_" + lon_bins.astype(str)).rename("cell")
+    unique_cells = np.array(sorted(cells.unique()))
+    if len(unique_cells) < 2:
+        raise ValueError("Spatial holdout requires at least two spatial grid cells.")
+
+    rng = np.random.default_rng(random_state)
+    shuffled_cells = rng.permutation(unique_cells)
+    test_cell_count = max(1, int(np.ceil(len(unique_cells) * test_size)))
+    test_cells = set(shuffled_cells[:test_cell_count])
+    test_mask = cells.isin(test_cells)
+
+    if test_mask.all() or not test_mask.any():
+        raise ValueError("Spatial holdout produced an empty train or test split.")
+
+    return (
+        features.loc[~test_mask],
+        features.loc[test_mask],
+        target.loc[~test_mask],
+        target.loc[test_mask],
+    )
+
+
+def make_baseline_models(random_state: int = 42) -> dict[str, object]:
+    return {
+        "linear_regression": make_pipeline(StandardScaler(), LinearRegression()),
+        "spatial_knn": make_pipeline(StandardScaler(), KNeighborsRegressor(n_neighbors=5)),
+        "random_forest": RandomForestRegressor(
+            n_estimators=300,
+            min_samples_leaf=2,
+            n_jobs=-1,
+            random_state=random_state,
+        ),
+        "gradient_boosting": GradientBoostingRegressor(random_state=random_state),
+    }
+
+
+def evaluate_models(
+    features: pd.DataFrame,
+    target: pd.Series,
+    *,
+    split_strategy: str = "random",
+    test_size: float = 0.2,
+    random_state: int = 42,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Compare baseline models on a random or spatial holdout split."""
+
+    if split_strategy == "random":
+        x_train, x_test, y_train, y_test = split_random(
+            features,
+            target,
+            test_size=test_size,
+            random_state=random_state,
+        )
+    elif split_strategy == "spatial":
+        x_train, x_test, y_train, y_test = split_spatial_holdout(
+            features,
+            target,
+            test_size=test_size,
+            random_state=random_state,
+        )
+    else:
+        raise ValueError("split_strategy must be either 'random' or 'spatial'.")
+
+    results: list[EvaluationResult] = []
+    predictions = pd.DataFrame({"actual": y_test.to_numpy()}, index=y_test.index)
+    for model_name, estimator in make_baseline_models(random_state).items():
+        fitted_model = clone(estimator)
+        fitted_model.fit(x_train, y_train)
+        predicted = fitted_model.predict(x_test)
+        metrics = compute_metrics(y_test, predicted)
+        predictions[model_name] = predicted
+        results.append(
+            EvaluationResult(
+                model_name=model_name,
+                split_strategy=split_strategy,
+                train_rows=len(x_train),
+                test_rows=len(x_test),
+                **metrics,
+            )
+        )
+
+    comparison = pd.DataFrame([result.__dict__ for result in results]).sort_values("rmse")
+    return comparison, predictions
+
+
+def save_model_comparison(
+    comparison: pd.DataFrame,
+    predictions: pd.DataFrame,
+    output_dir: str | Path,
+) -> None:
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    comparison.to_csv(output_path / "model_comparison.csv", index=False)
+    predictions.to_csv(output_path / "baseline_predictions.csv", index=False)
+
+    plt.figure(figsize=(8, 5))
+    sns.barplot(data=comparison, x="rmse", y="model_name", color="#2878b5")
+    plt.xlabel("RMSE")
+    plt.ylabel("Model")
+    plt.title("Baseline Model Comparison")
+    plt.tight_layout()
+    plt.savefig(output_path / "model_comparison.png", dpi=180)
+    plt.close()
+
+
 class NO2Downscaler:
     """Train and evaluate a Random Forest model for NO2 concentration downscaling."""
 
@@ -124,13 +290,11 @@ class NO2Downscaler:
         self.model.fit(x_train, y_train)
         predictions = self.model.predict(x_test)
 
-        rmse = float(np.sqrt(mean_squared_error(y_test, predictions)))
-        mae = float(mean_absolute_error(y_test, predictions))
-        r2 = float(r2_score(y_test, predictions))
+        metrics = compute_metrics(y_test, predictions)
         self.report_ = ModelReport(
-            rmse=rmse,
-            mae=mae,
-            r2=r2,
+            rmse=metrics["rmse"],
+            mae=metrics["mae"],
+            r2=metrics["r2"],
             train_rows=len(x_train),
             test_rows=len(x_test),
             feature_names=tuple(features.columns),

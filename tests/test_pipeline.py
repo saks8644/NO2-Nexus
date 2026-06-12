@@ -2,7 +2,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from no2_nexus.pipeline import NO2Downscaler, build_feature_matrix, infer_target_column, normalise_columns
+from no2_nexus.pipeline import (
+    NO2Downscaler,
+    build_feature_matrix,
+    evaluate_models,
+    infer_target_column,
+    normalise_columns,
+    split_spatial_holdout,
+)
 
 
 def make_synthetic_no2_data(rows: int = 80) -> pd.DataFrame:
@@ -59,3 +66,33 @@ def test_build_feature_matrix_rejects_missing_feature():
 
     with pytest.raises(ValueError, match="Feature columns were not found"):
         build_feature_matrix(data, "target_no2", ["missing_feature"])
+
+
+def test_spatial_holdout_keeps_train_and_test_rows_separate():
+    data = normalise_columns(make_synthetic_no2_data())
+    target_column = infer_target_column(data, None)
+    features, target = build_feature_matrix(data, target_column)
+
+    x_train, x_test, y_train, y_test = split_spatial_holdout(features, target)
+
+    assert len(x_train) > 0
+    assert len(x_test) > 0
+    assert set(x_train.index).isdisjoint(set(x_test.index))
+    assert set(y_train.index).isdisjoint(set(y_test.index))
+
+
+def test_evaluate_models_returns_baseline_comparison():
+    data = normalise_columns(make_synthetic_no2_data())
+    target_column = infer_target_column(data, None)
+    features, target = build_feature_matrix(data, target_column)
+
+    comparison, predictions = evaluate_models(features, target, split_strategy="spatial")
+
+    assert set(comparison["model_name"]) == {
+        "linear_regression",
+        "spatial_knn",
+        "random_forest",
+        "gradient_boosting",
+    }
+    assert comparison["rmse"].is_monotonic_increasing
+    assert "actual" in predictions.columns

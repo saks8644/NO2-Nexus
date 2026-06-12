@@ -21,6 +21,8 @@ NO2 Nexus demonstrates the ML workflow needed for a downscaling experiment:
 
 - clean and validate tabular geospatial features
 - train a reproducible Random Forest model
+- compare simple baselines against tree-based models
+- evaluate with random and spatial holdout splits
 - evaluate with RMSE, MAE, and R2
 - export prediction and feature-importance artifacts
 - generate diagnostic plots for model inspection
@@ -29,14 +31,17 @@ NO2 Nexus demonstrates the ML workflow needed for a downscaling experiment:
 
 ```text
 .
-├── model.ipynb              # Original exploratory notebook
-├── pyproject.toml           # Installable package metadata
-├── requirements.txt         # Runtime and test dependencies
-├── src/no2_nexus/
-│   ├── cli.py               # Command-line training entry point
-│   └── pipeline.py          # Data validation, training, metrics, plots
-└── tests/
-    └── test_pipeline.py     # Unit tests with synthetic NO2-like data
+|-- data/sample_no2.csv      # Synthetic sample dataset for quick runs
+|-- docs/                    # Real-data export workflow
+|-- model.ipynb              # Polished notebook walkthrough
+|-- pyproject.toml           # Installable package metadata
+|-- requirements.txt         # Runtime and test dependencies
+|-- results.md               # Metrics interpretation and limitations
+|-- src/no2_nexus/
+|   |-- cli.py               # Command-line training entry point
+|   `-- pipeline.py          # Data validation, training, metrics, plots
+`-- tests/
+    `-- test_pipeline.py     # Unit tests with synthetic NO2-like data
 ```
 
 ## Installation
@@ -86,6 +91,12 @@ Try the included synthetic sample dataset:
 no2-nexus --data data/sample_no2.csv --target target_NO2 --output-dir outputs/sample_run
 ```
 
+Compare baselines with a spatial holdout:
+
+```bash
+no2-nexus --data data/sample_no2.csv --target target_NO2 --output-dir outputs/sample_run --compare --split spatial
+```
+
 Or run it as a module:
 
 ```bash
@@ -105,6 +116,8 @@ The command prints evaluation metrics and writes:
 
 - `outputs/predictions.csv`
 - `outputs/feature_importance.csv`
+- `outputs/model_comparison.csv` when `--compare` is used
+- `outputs/model_comparison.png` when `--compare` is used
 - `outputs/actual_vs_predicted.png`
 - `outputs/residuals.png`
 - `outputs/feature_importance.png`
@@ -120,6 +133,19 @@ The CLI reports:
 The exported plots help diagnose whether the model is biased, whether errors
 grow for higher NO2 values, and which features drive predictions.
 
+Use `--split spatial` for a more realistic geospatial validation estimate. A
+random split can overstate performance when nearby points share similar pollution
+patterns.
+
+## Real Data Workflow
+
+The included sample CSV is synthetic. Use it to verify the software, not to claim
+real-world model performance. For real experiments, follow
+`docs/google_earth_engine_export.md` to export Sentinel-5P NO2 features from
+Google Earth Engine and join them with ground-truth measurements.
+
+See `results.md` for metric interpretation, current limitations, and future work.
+
 ## Development Checks
 
 Run tests before sharing changes:
@@ -133,10 +159,8 @@ handling, and end-to-end model training on deterministic synthetic data.
 
 ## Next Improvements
 
-- Add a small public sample dataset or a documented Google Earth Engine export
-  recipe.
-- Compare Random Forest with gradient boosting and a spatial cross-validation
-  split.
+- Add a public real-world benchmark dataset.
+- Add temporal validation across months or seasons.
 - Add raster export support for generating GeoTIFF prediction maps.
 - Track experiments with MLflow or Weights & Biases for stronger reproducibility.
 
