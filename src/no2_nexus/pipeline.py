@@ -87,6 +87,11 @@ def build_feature_matrix(
 ) -> tuple[pd.DataFrame, pd.Series]:
     """Build validated numeric features and target values."""
 
+    data = data.copy()
+    if "date" in data.columns:
+        parsed_dates = pd.to_datetime(data["date"], errors="coerce")
+        data["date"] = parsed_dates.map(lambda value: value.toordinal() if pd.notna(value) else np.nan)
+
     if feature_columns:
         features = [name.strip().lower().replace(" ", "_").replace("-", "_") for name in feature_columns]
     else:
@@ -175,6 +180,44 @@ def split_spatial_holdout(
     )
 
 
+def split_temporal_holdout(
+    features: pd.DataFrame,
+    target: pd.Series,
+    *,
+    date_column: str = "date",
+    test_size: float = 0.2,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
+    """Hold out the latest observations by date to estimate future performance."""
+
+    if date_column not in features.columns:
+        raise ValueError(
+            "Temporal holdout requires a date feature column. "
+            "Include a date column or pass --split random/--split spatial."
+        )
+
+    if np.issubdtype(features[date_column].dtype, np.number):
+        dates = features[date_column]
+    else:
+        dates = pd.to_datetime(features[date_column], errors="coerce")
+    valid_mask = dates.notna()
+    if valid_mask.sum() < 2:
+        raise ValueError("Temporal holdout requires at least two valid dates.")
+
+    sorted_index = dates.loc[valid_mask].sort_values().index
+    test_rows = max(1, int(np.ceil(len(sorted_index) * test_size)))
+    test_index = sorted_index[-test_rows:]
+    train_index = sorted_index[:-test_rows]
+    if len(train_index) == 0:
+        raise ValueError("Temporal holdout produced an empty training split.")
+
+    return (
+        features.loc[train_index],
+        features.loc[test_index],
+        target.loc[train_index],
+        target.loc[test_index],
+    )
+
+
 def make_baseline_models(random_state: int = 42) -> dict[str, object]:
     return {
         "linear_regression": make_pipeline(StandardScaler(), LinearRegression()),
@@ -199,22 +242,37 @@ def evaluate_models(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Compare baseline models on a random or spatial holdout split."""
 
+    modelling_features = features.copy()
+    date_features = modelling_features.select_dtypes(include=["datetime64[ns]", "datetimetz"]).columns
+    for column in date_features:
+        modelling_features[column] = pd.to_datetime(modelling_features[column]).map(
+            lambda value: value.toordinal() if pd.notna(value) else np.nan
+        )
+
     if split_strategy == "random":
         x_train, x_test, y_train, y_test = split_random(
-            features,
+            modelling_features,
             target,
             test_size=test_size,
             random_state=random_state,
         )
     elif split_strategy == "spatial":
         x_train, x_test, y_train, y_test = split_spatial_holdout(
-            features,
+            modelling_features,
             target,
             test_size=test_size,
             random_state=random_state,
         )
+    elif split_strategy == "temporal":
+        x_train, x_test, y_train, y_test = split_temporal_holdout(
+            features,
+            target,
+            test_size=test_size,
+        )
+        x_train = modelling_features.loc[x_train.index]
+        x_test = modelling_features.loc[x_test.index]
     else:
-        raise ValueError("split_strategy must be either 'random' or 'spatial'.")
+        raise ValueError("split_strategy must be 'random', 'spatial', or 'temporal'.")
 
     results: list[EvaluationResult] = []
     predictions = pd.DataFrame({"actual": y_test.to_numpy()}, index=y_test.index)
@@ -242,6 +300,7 @@ def save_model_comparison(
     comparison: pd.DataFrame,
     predictions: pd.DataFrame,
     output_dir: str | Path,
+    features: pd.DataFrame | None = None,
 ) -> None:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -255,6 +314,35 @@ def save_model_comparison(
     plt.title("Baseline Model Comparison")
     plt.tight_layout()
     plt.savefig(output_path / "model_comparison.png", dpi=180)
+    plt.close()
+
+    if features is not None and {"latitude", "longitude"}.issubset(features.columns):
+        best_model = comparison.iloc[0]["model_name"]
+        map_data = predictions.join(features[["latitude", "longitude"]], how="left")
+        map_data = map_data.dropna(subset=["latitude", "longitude", best_model])
+        if not map_data.empty:
+            save_prediction_map(map_data, best_model, output_path / "prediction_map.png")
+
+
+def save_prediction_map(map_data: pd.DataFrame, prediction_column: str, path: str | Path) -> None:
+    """Save a lightweight lat/lon prediction map for quick model inspection."""
+
+    plt.figure(figsize=(7, 6))
+    scatter = plt.scatter(
+        map_data["longitude"],
+        map_data["latitude"],
+        c=map_data[prediction_column],
+        cmap="viridis",
+        s=70,
+        edgecolor="black",
+        linewidth=0.3,
+    )
+    plt.colorbar(scatter, label="Predicted NO2")
+    plt.xlabel("Longitude")
+    plt.ylabel("Latitude")
+    plt.title(f"Predicted NO2 Map: {prediction_column}")
+    plt.tight_layout()
+    plt.savefig(path, dpi=180)
     plt.close()
 
 

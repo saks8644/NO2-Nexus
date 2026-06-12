@@ -38,7 +38,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--split",
-        choices=["random", "spatial"],
+        choices=["random", "spatial", "temporal"],
         default="random",
         help="Validation split strategy used for baseline comparison.",
     )
@@ -72,7 +72,7 @@ def main() -> None:
             split_strategy=args.split,
             test_size=args.test_size,
         )
-        save_model_comparison(comparison, predictions, Path(args.output_dir))
+        save_model_comparison(comparison, predictions, Path(args.output_dir), features)
         print("")
         print(f"Baseline comparison ({args.split} split)")
         print(comparison.to_string(index=False, float_format=lambda value: f"{value:.4f}"))

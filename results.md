@@ -16,6 +16,7 @@ Outputs:
 
 - `outputs/sample_run/model_comparison.csv`
 - `outputs/sample_run/model_comparison.png`
+- `outputs/sample_run/prediction_map.png`
 - `outputs/sample_run/predictions.csv`
 - `outputs/sample_run/baseline_predictions.csv`
 - `outputs/sample_run/actual_vs_predicted.png`
@@ -26,15 +27,42 @@ Spatial holdout baseline comparison on the synthetic sample:
 
 | Model | RMSE | MAE | R2 |
 | --- | ---: | ---: | ---: |
-| Linear Regression | 0.0598 | 0.0524 | 0.9995 |
-| Gradient Boosting | 2.3678 | 2.0744 | 0.1423 |
-| Random Forest | 3.2510 | 2.9326 | -0.6168 |
-| Spatial KNN | 3.9697 | 3.6053 | -1.4107 |
+| Linear Regression | 0.0876 | 0.0786 | 0.9988 |
+| Gradient Boosting | 2.3627 | 2.0285 | 0.1460 |
+| Random Forest | 3.2674 | 2.9635 | -0.6332 |
+| Spatial KNN | 3.8262 | 3.4703 | -1.2395 |
 
 Linear Regression performs best on this synthetic sample because the target was
 generated from a mostly linear relationship. On real Sentinel-5P and ground
 monitoring data, the ranking may change, which is why the project compares
 multiple baselines instead of assuming the most complex model is best.
+
+Temporal holdout comparison on the synthetic sample:
+
+| Model | RMSE | MAE | R2 |
+| --- | ---: | ---: | ---: |
+| Linear Regression | 0.0767 | 0.0636 | 0.9998 |
+| Gradient Boosting | 0.9506 | 0.6161 | 0.9629 |
+| Random Forest | 1.6665 | 0.9178 | 0.8859 |
+| Spatial KNN | 1.9021 | 1.6205 | 0.8514 |
+
+The temporal split asks a harder question than random validation: can the model
+generalize to later observations?
+
+## Real-Data Path
+
+The repository includes `scripts/prepare_hsg_no2_dataset.py`, which downloads and
+prepares the public HSG-AIML NO2 dataset when run locally. That dataset is
+described by its authors as temporally and spatially aligned NO2 measurements
+from European air-quality stations, Sentinel-5P, and supplementary sources.
+
+The archive is about 100 MB, so raw and processed files are intentionally ignored
+by Git. After preparing it, run:
+
+```bash
+no2-nexus --data data/processed/hsg_no2_training.csv --target target_no2 --output-dir outputs/hsg_run --compare --split spatial
+no2-nexus --data data/processed/hsg_no2_training.csv --target target_no2 --output-dir outputs/hsg_temporal --compare --split temporal
+```
 
 ## How To Interpret Metrics
 
@@ -60,11 +88,18 @@ can share very similar pollution patterns.
 - Real deployment would need uncertainty estimates, temporal validation, data
   drift monitoring, and careful QA on satellite retrieval quality.
 
+## Failure Cases To Watch
+
+- Rural or low-monitor-density regions may have weak ground-truth coverage.
+- Satellite retrievals can be missing or noisy because of clouds, snow, aerosols,
+  or low-quality retrieval flags.
+- A model trained in one city or season may fail under different meteorology,
+  emission patterns, or sensor networks.
+- Feature importance can be misleading when features are correlated, so it should
+  be treated as a diagnostic rather than a causal explanation.
+
 ## Future Work
 
-- Add a public real-world benchmark dataset.
 - Compare Random Forest with XGBoost or LightGBM when those dependencies are
   acceptable.
-- Add temporal validation, for example training on one month and testing on a
-  later month.
 - Export predicted maps as GeoTIFF files for GIS tools.

@@ -22,9 +22,10 @@ NO2 Nexus demonstrates the ML workflow needed for a downscaling experiment:
 - clean and validate tabular geospatial features
 - train a reproducible Random Forest model
 - compare simple baselines against tree-based models
-- evaluate with random and spatial holdout splits
+- evaluate with random, spatial, and temporal holdout splits
 - evaluate with RMSE, MAE, and R2
 - export prediction and feature-importance artifacts
+- create a lightweight prediction map
 - generate diagnostic plots for model inspection
 
 ## Repository Structure
@@ -37,6 +38,7 @@ NO2 Nexus demonstrates the ML workflow needed for a downscaling experiment:
 |-- pyproject.toml           # Installable package metadata
 |-- requirements.txt         # Runtime and test dependencies
 |-- results.md               # Metrics interpretation and limitations
+|-- scripts/                 # Public data preparation utilities
 |-- src/no2_nexus/
 |   |-- cli.py               # Command-line training entry point
 |   `-- pipeline.py          # Data validation, training, metrics, plots
@@ -97,6 +99,12 @@ Compare baselines with a spatial holdout:
 no2-nexus --data data/sample_no2.csv --target target_NO2 --output-dir outputs/sample_run --compare --split spatial
 ```
 
+Compare baselines with a temporal holdout:
+
+```bash
+no2-nexus --data data/sample_no2.csv --target target_NO2 --output-dir outputs/temporal_run --compare --split temporal
+```
+
 Or run it as a module:
 
 ```bash
@@ -118,6 +126,7 @@ The command prints evaluation metrics and writes:
 - `outputs/feature_importance.csv`
 - `outputs/model_comparison.csv` when `--compare` is used
 - `outputs/model_comparison.png` when `--compare` is used
+- `outputs/prediction_map.png` when coordinates are available
 - `outputs/actual_vs_predicted.png`
 - `outputs/residuals.png`
 - `outputs/feature_importance.png`
@@ -133,9 +142,9 @@ The CLI reports:
 The exported plots help diagnose whether the model is biased, whether errors
 grow for higher NO2 values, and which features drive predictions.
 
-Use `--split spatial` for a more realistic geospatial validation estimate. A
-random split can overstate performance when nearby points share similar pollution
-patterns.
+Use `--split spatial` for a held-out-region estimate and `--split temporal` for
+a held-out-future estimate. A random split can overstate performance when nearby
+or same-period observations share similar pollution patterns.
 
 ## Real Data Workflow
 
@@ -143,6 +152,17 @@ The included sample CSV is synthetic. Use it to verify the software, not to clai
 real-world model performance. For real experiments, follow
 `docs/google_earth_engine_export.md` to export Sentinel-5P NO2 features from
 Google Earth Engine and join them with ground-truth measurements.
+
+You can also prepare the public HSG-AIML aligned Sentinel-5P/ground-station NO2
+dataset locally:
+
+```bash
+python scripts/prepare_hsg_no2_dataset.py
+no2-nexus --data data/processed/hsg_no2_training.csv --target target_no2 --output-dir outputs/hsg_run --compare --split spatial
+```
+
+The raw and processed large-data directories are ignored by Git, which keeps this
+repository lightweight while making the real-data path reproducible.
 
 See `results.md` for metric interpretation, current limitations, and future work.
 
@@ -159,8 +179,6 @@ handling, and end-to-end model training on deterministic synthetic data.
 
 ## Next Improvements
 
-- Add a public real-world benchmark dataset.
-- Add temporal validation across months or seasons.
 - Add raster export support for generating GeoTIFF prediction maps.
 - Track experiments with MLflow or Weights & Biases for stronger reproducibility.
 

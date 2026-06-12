@@ -7,5 +7,7 @@ __pycache__/
 venv/
 env/
 outputs/
+data/raw/
+data/processed/
 *.egg-info/
 .ipynb_checkpoints/

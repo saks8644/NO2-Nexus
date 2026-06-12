@@ -8,7 +8,9 @@ from no2_nexus.pipeline import (
     evaluate_models,
     infer_target_column,
     normalise_columns,
+    save_model_comparison,
     split_spatial_holdout,
+    split_temporal_holdout,
 )
 
 
@@ -21,6 +23,7 @@ def make_synthetic_no2_data(rows: int = 80) -> pd.DataFrame:
     target_no2 = 0.7 * coarse_no2 + 8 * traffic_index + 0.1 * latitude - 0.05 * longitude
     return pd.DataFrame(
         {
+            "date": pd.date_range("2019-06-01", periods=rows, freq="D"),
             "Latitude": latitude,
             "Longitude": longitude,
             "coarse_NO2": coarse_no2,
@@ -96,3 +99,26 @@ def test_evaluate_models_returns_baseline_comparison():
     }
     assert comparison["rmse"].is_monotonic_increasing
     assert "actual" in predictions.columns
+
+
+def test_temporal_holdout_uses_latest_rows_for_testing():
+    data = normalise_columns(make_synthetic_no2_data())
+    target_column = infer_target_column(data, None)
+    features, target = build_feature_matrix(data, target_column)
+
+    x_train, x_test, _, _ = split_temporal_holdout(features, target)
+
+    assert x_train["date"].max() < x_test["date"].min()
+    assert len(x_test) == 16
+
+
+def test_save_model_comparison_writes_prediction_map(tmp_path):
+    data = normalise_columns(make_synthetic_no2_data())
+    target_column = infer_target_column(data, None)
+    features, target = build_feature_matrix(data, target_column)
+    comparison, predictions = evaluate_models(features, target, split_strategy="spatial")
+
+    save_model_comparison(comparison, predictions, tmp_path, features)
+
+    assert (tmp_path / "model_comparison.csv").exists()
+    assert (tmp_path / "prediction_map.png").exists()

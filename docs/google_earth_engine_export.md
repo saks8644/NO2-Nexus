@@ -13,6 +13,8 @@ Relevant band:
 Dataset catalog:
 https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_S5P_OFFL_L3_NO2
 
+For a ready-made public benchmark, see `docs/public_real_dataset.md`.
+
 ## Export Template
 
 Paste this into the Earth Engine Code Editor and update the region, dates, and
