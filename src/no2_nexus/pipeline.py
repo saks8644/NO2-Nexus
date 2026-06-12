@@ -9,13 +9,14 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from sklearn.base import clone
-from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
+from sklearn.compose import TransformedTargetRegressor
+from sklearn.ensemble import ExtraTreesRegressor, HistGradientBoostingRegressor, RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold, train_test_split
 
 
 DEFAULT_EXCLUDED_COLUMNS = {
@@ -25,6 +26,8 @@ DEFAULT_EXCLUDED_COLUMNS = {
     "no2_observed",
     "no2_target",
 }
+
+EARTH_RADIUS_KM = 6371.0088
 
 
 @dataclass(frozen=True)
@@ -84,6 +87,9 @@ def build_feature_matrix(
     data: pd.DataFrame,
     target_column: str,
     feature_columns: Iterable[str] | None = None,
+    *,
+    engineer_features: bool = True,
+    target_quantile: float | None = None,
 ) -> tuple[pd.DataFrame, pd.Series]:
     """Build validated numeric features and target values."""
 
@@ -91,6 +97,8 @@ def build_feature_matrix(
     if "date" in data.columns:
         parsed_dates = pd.to_datetime(data["date"], errors="coerce")
         data["date"] = parsed_dates.map(lambda value: value.toordinal() if pd.notna(value) else np.nan)
+    if engineer_features:
+        data = add_engineered_features(data)
 
     if feature_columns:
         features = [name.strip().lower().replace(" ", "_").replace("-", "_") for name in feature_columns]
@@ -109,10 +117,77 @@ def build_feature_matrix(
         raise ValueError(f"Feature columns were not found: {', '.join(missing)}")
 
     modelling_data = data[[*features, target_column]].replace([np.inf, -np.inf], np.nan).dropna()
+    if target_quantile is not None:
+        modelling_data = filter_target_outliers(modelling_data, target_column, target_quantile)
     if modelling_data.empty:
         raise ValueError("No rows remain after removing missing or infinite values.")
 
     return modelling_data[features], modelling_data[target_column]
+
+
+def add_engineered_features(data: pd.DataFrame) -> pd.DataFrame:
+    """Add domain-informed tabular features for NO2 downscaling."""
+
+    engineered = data.copy()
+    for column, period in (("hour", 24), ("weekday", 7), ("month", 12)):
+        if column in engineered.columns:
+            radians = 2 * np.pi * engineered[column].astype(float) / period
+            engineered[f"{column}_sin"] = np.sin(radians)
+            engineered[f"{column}_cos"] = np.cos(radians)
+
+    if {"latitude", "longitude"}.issubset(engineered.columns):
+        engineered["lat_lon_interaction"] = engineered["latitude"] * engineered["longitude"]
+        engineered["latitude_squared"] = engineered["latitude"] ** 2
+        engineered["longitude_squared"] = engineered["longitude"] ** 2
+
+    if {"latitude", "longitude", "surfacelatitude", "surfacelongitude"}.issubset(engineered.columns):
+        engineered["station_pixel_distance_km"] = haversine_distance_km(
+            engineered["latitude"],
+            engineered["longitude"],
+            engineered["surfacelatitude"],
+            engineered["surfacelongitude"],
+        )
+        engineered["abs_latitude_offset"] = (engineered["latitude"] - engineered["surfacelatitude"]).abs()
+        engineered["abs_longitude_offset"] = (engineered["longitude"] - engineered["surfacelongitude"]).abs()
+
+    if "populationdensity" in engineered.columns:
+        engineered["log_populationdensity"] = np.log1p(engineered["populationdensity"].clip(lower=0))
+
+    if {"temperature", "precipitation"}.issubset(engineered.columns):
+        engineered["temperature_precipitation"] = engineered["temperature"] * engineered["precipitation"]
+
+    if {"target_no2", "sensingtimediff"}.issubset(engineered.columns):
+        engineered["no2_sensingtime_interaction"] = engineered["target_no2"] * engineered["sensingtimediff"]
+
+    return engineered
+
+
+def haversine_distance_km(
+    lat1: pd.Series,
+    lon1: pd.Series,
+    lat2: pd.Series,
+    lon2: pd.Series,
+) -> pd.Series:
+    lat1_rad = np.radians(lat1.astype(float))
+    lon1_rad = np.radians(lon1.astype(float))
+    lat2_rad = np.radians(lat2.astype(float))
+    lon2_rad = np.radians(lon2.astype(float))
+    delta_lat = lat2_rad - lat1_rad
+    delta_lon = lon2_rad - lon1_rad
+    a = np.sin(delta_lat / 2) ** 2 + np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(delta_lon / 2) ** 2
+    return 2 * EARTH_RADIUS_KM * np.arcsin(np.sqrt(a))
+
+
+def filter_target_outliers(data: pd.DataFrame, target_column: str, target_quantile: float) -> pd.DataFrame:
+    """Remove extreme target tails that often correspond to sensor spikes."""
+
+    if not 0.5 < target_quantile <= 1.0:
+        raise ValueError("target_quantile must be in the interval (0.5, 1.0].")
+    if target_quantile == 1.0:
+        return data
+    upper = data[target_column].quantile(target_quantile)
+    lower = data[target_column].quantile(1 - target_quantile)
+    return data[(data[target_column] >= lower) & (data[target_column] <= upper)]
 
 
 def compute_metrics(actual: pd.Series | np.ndarray, predicted: np.ndarray) -> dict[str, float]:
@@ -218,18 +293,56 @@ def split_temporal_holdout(
     )
 
 
-def make_baseline_models(random_state: int = 42) -> dict[str, object]:
-    return {
+def make_baseline_models(random_state: int = 42, *, log_target: bool = False) -> dict[str, object]:
+    models: dict[str, object] = {
         "linear_regression": make_pipeline(StandardScaler(), LinearRegression()),
         "spatial_knn": make_pipeline(StandardScaler(), KNeighborsRegressor(n_neighbors=5)),
-        "random_forest": RandomForestRegressor(
-            n_estimators=300,
-            min_samples_leaf=2,
+        "hist_gradient_boosting": HistGradientBoostingRegressor(
+            max_iter=350,
+            learning_rate=0.05,
+            l2_regularization=0.1,
+            max_leaf_nodes=31,
+            random_state=random_state,
+        ),
+        "extra_trees": ExtraTreesRegressor(
+            n_estimators=120,
+            min_samples_leaf=3,
+            max_features=0.8,
             n_jobs=-1,
             random_state=random_state,
         ),
-        "gradient_boosting": GradientBoostingRegressor(random_state=random_state),
+        "random_forest": RandomForestRegressor(
+            n_estimators=160,
+            min_samples_leaf=3,
+            max_features=0.8,
+            n_jobs=-1,
+            random_state=random_state,
+        ),
     }
+    if not log_target:
+        return models
+    return {
+        f"log_{name}": TransformedTargetRegressor(
+            regressor=model,
+            func=np.log1p,
+            inverse_func=np.expm1,
+        )
+        for name, model in models.items()
+    }
+
+
+def select_models(models: dict[str, object], model_names: Iterable[str] | None) -> dict[str, object]:
+    if model_names is None:
+        return models
+    selected = set(model_names)
+    filtered = {
+        name: model
+        for name, model in models.items()
+        if name in selected or name.removeprefix("log_") in selected
+    }
+    if not filtered:
+        raise ValueError("No requested model names matched the available models.")
+    return filtered
 
 
 def evaluate_models(
@@ -239,6 +352,8 @@ def evaluate_models(
     split_strategy: str = "random",
     test_size: float = 0.2,
     random_state: int = 42,
+    log_target: bool = False,
+    model_names: Iterable[str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Compare baseline models on a random or spatial holdout split."""
 
@@ -276,7 +391,9 @@ def evaluate_models(
 
     results: list[EvaluationResult] = []
     predictions = pd.DataFrame({"actual": y_test.to_numpy()}, index=y_test.index)
-    for model_name, estimator in make_baseline_models(random_state).items():
+    models = select_models(make_baseline_models(random_state, log_target=log_target), model_names)
+
+    for model_name, estimator in models.items():
         fitted_model = clone(estimator)
         fitted_model.fit(x_train, y_train)
         predicted = fitted_model.predict(x_test)
@@ -294,6 +411,73 @@ def evaluate_models(
 
     comparison = pd.DataFrame([result.__dict__ for result in results]).sort_values("rmse")
     return comparison, predictions
+
+
+def spatial_cross_validate_models(
+    features: pd.DataFrame,
+    target: pd.Series,
+    *,
+    n_splits: int = 4,
+    random_state: int = 42,
+    log_target: bool = False,
+    grid_bins: int = 6,
+    model_names: Iterable[str] | None = None,
+) -> pd.DataFrame:
+    """Evaluate models across multiple held-out spatial cell folds."""
+
+    if not {"latitude", "longitude"}.issubset(features.columns):
+        raise ValueError("Spatial CV requires latitude and longitude feature columns.")
+    lat_bins = pd.qcut(features["latitude"], q=grid_bins, labels=False, duplicates="drop")
+    lon_bins = pd.qcut(features["longitude"], q=grid_bins, labels=False, duplicates="drop")
+    cells = (lat_bins.astype(str) + "_" + lon_bins.astype(str)).to_numpy()
+    unique_cells = np.array(sorted(pd.unique(cells)))
+    if len(unique_cells) < n_splits:
+        raise ValueError("Not enough spatial cells for the requested number of folds.")
+
+    modelling_features = features.copy()
+    rows: list[dict[str, float | int | str]] = []
+    splitter = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    for fold, (train_cell_idx, test_cell_idx) in enumerate(splitter.split(unique_cells), start=1):
+        train_cells = set(unique_cells[train_cell_idx])
+        test_cells = set(unique_cells[test_cell_idx])
+        train_mask = pd.Series(cells).isin(train_cells).to_numpy()
+        test_mask = pd.Series(cells).isin(test_cells).to_numpy()
+        x_train = modelling_features.loc[train_mask]
+        x_test = modelling_features.loc[test_mask]
+        y_train = target.loc[train_mask]
+        y_test = target.loc[test_mask]
+        models = select_models(make_baseline_models(random_state, log_target=log_target), model_names)
+        for model_name, estimator in models.items():
+            fitted_model = clone(estimator)
+            fitted_model.fit(x_train, y_train)
+            predicted = fitted_model.predict(x_test)
+            metrics = compute_metrics(y_test, predicted)
+            rows.append(
+                {
+                    "fold": fold,
+                    "model_name": model_name,
+                    "train_rows": len(x_train),
+                    "test_rows": len(x_test),
+                    **metrics,
+                }
+            )
+
+    fold_results = pd.DataFrame(rows)
+    summary = (
+        fold_results.groupby("model_name")
+        .agg(
+            rmse_mean=("rmse", "mean"),
+            rmse_std=("rmse", "std"),
+            mae_mean=("mae", "mean"),
+            mae_std=("mae", "std"),
+            r2_mean=("r2", "mean"),
+            r2_std=("r2", "std"),
+            total_test_rows=("test_rows", "sum"),
+        )
+        .reset_index()
+        .sort_values("rmse_mean")
+    )
+    return summary
 
 
 def save_model_comparison(

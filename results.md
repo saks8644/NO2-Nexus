@@ -60,9 +60,49 @@ The archive is about 100 MB, so raw and processed files are intentionally ignore
 by Git. After preparing it, run:
 
 ```bash
-no2-nexus --data data/processed/hsg_no2_training.csv --target target_no2 --output-dir outputs/hsg_run --compare --split spatial
-no2-nexus --data data/processed/hsg_no2_training.csv --target target_no2 --output-dir outputs/hsg_temporal --compare --split temporal
+no2-nexus --data data/processed/hsg_no2_training.csv --target surfaceconcentration --output-dir outputs/hsg_improved_spatial --skip-primary --compare --split spatial --target-quantile 0.99 --models linear_regression hist_gradient_boosting random_forest
+no2-nexus --data data/processed/hsg_no2_training.csv --target surfaceconcentration --output-dir outputs/hsg_improved_spatial_cv --skip-primary --target-quantile 0.99 --models linear_regression hist_gradient_boosting --spatial-cv-folds 4
 ```
+
+## Real-Data Improved Results
+
+The original real-data spatial holdout Random Forest score was approximately
+R2 = 0.0618. After feature engineering, central 99% target filtering, and
+stronger sklearn models, spatial generalization improved substantially.
+
+Target:
+`surfaceconcentration`
+
+Rows after target filtering:
+`1,590,027`
+
+Features added:
+
+- cyclic encodings for hour, weekday, and month
+- latitude/longitude interaction and squared coordinate terms
+- station-to-satellite-pixel distance
+- absolute station-pixel latitude and longitude offsets
+- log population density
+- weather and sensing-time interaction features
+
+Single spatial holdout:
+
+| Model | RMSE | MAE | R2 |
+| --- | ---: | ---: | ---: |
+| Linear Regression | 10.4891 | 7.7363 | 0.2523 |
+| HistGradientBoosting | 10.5624 | 7.9119 | 0.2418 |
+| Random Forest | 10.6673 | 8.0462 | 0.2267 |
+
+Four-fold spatial cross-validation:
+
+| Model | RMSE Mean | RMSE Std | MAE Mean | R2 Mean | R2 Std |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| HistGradientBoosting | 10.4705 | 0.5668 | 7.5447 | 0.2732 | 0.0491 |
+| Linear Regression | 10.6971 | 0.5167 | 7.7865 | 0.2413 | 0.0480 |
+
+Temporal validation requires a complete date column. The prepared public dataset
+contains month, weekday, and hour, but not the full timestamp, so this real-data
+evaluation emphasizes spatial validation.
 
 ## How To Interpret Metrics
 

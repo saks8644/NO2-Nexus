@@ -23,6 +23,8 @@ NO2 Nexus demonstrates the ML workflow needed for a downscaling experiment:
 - train a reproducible Random Forest model
 - compare simple baselines against tree-based models
 - evaluate with random, spatial, and temporal holdout splits
+- run multi-fold spatial cross-validation
+- engineer cyclic time, spatial-distance, and interaction features
 - evaluate with RMSE, MAE, and R2
 - export prediction and feature-importance artifacts
 - create a lightweight prediction map
@@ -105,6 +107,18 @@ Compare baselines with a temporal holdout:
 no2-nexus --data data/sample_no2.csv --target target_NO2 --output-dir outputs/temporal_run --compare --split temporal
 ```
 
+Run the improved public real-data experiment after preparing HSG-AIML data:
+
+```bash
+no2-nexus --data data/processed/hsg_no2_training.csv --target surfaceconcentration --output-dir outputs/hsg_improved_spatial --skip-primary --compare --split spatial --target-quantile 0.99 --models linear_regression hist_gradient_boosting random_forest
+```
+
+Run multi-fold spatial cross-validation:
+
+```bash
+no2-nexus --data data/processed/hsg_no2_training.csv --target surfaceconcentration --output-dir outputs/hsg_improved_spatial_cv --skip-primary --target-quantile 0.99 --models linear_regression hist_gradient_boosting --spatial-cv-folds 4
+```
+
 Or run it as a module:
 
 ```bash
@@ -146,6 +160,11 @@ Use `--split spatial` for a held-out-region estimate and `--split temporal` for
 a held-out-future estimate. A random split can overstate performance when nearby
 or same-period observations share similar pollution patterns.
 
+Temporal validation requires a complete `date` column. The included synthetic
+sample has one; the prepared public HSG-AIML file exposes month, weekday, and
+hour but not a complete timestamp, so spatial validation is the main real-data
+generalization check.
+
 ## Real Data Workflow
 
 The included sample CSV is synthetic. Use it to verify the software, not to claim
@@ -158,7 +177,7 @@ dataset locally:
 
 ```bash
 python scripts/prepare_hsg_no2_dataset.py
-no2-nexus --data data/processed/hsg_no2_training.csv --target target_no2 --output-dir outputs/hsg_run --compare --split spatial
+no2-nexus --data data/processed/hsg_no2_training.csv --target surfaceconcentration --output-dir outputs/hsg_improved_spatial --skip-primary --compare --split spatial --target-quantile 0.99 --models linear_regression hist_gradient_boosting random_forest
 ```
 
 The raw and processed large-data directories are ignored by Git, which keeps this

@@ -10,6 +10,7 @@ from no2_nexus.pipeline import (
     normalise_columns,
     save_model_comparison,
     split_spatial_holdout,
+    spatial_cross_validate_models,
     split_temporal_holdout,
 )
 
@@ -49,6 +50,17 @@ def test_build_feature_matrix_drops_missing_values():
     assert len(features) == 9
     assert len(target) == 9
     assert "target_no2" not in features.columns
+
+
+def test_build_feature_matrix_adds_engineered_features():
+    data = normalise_columns(make_synthetic_no2_data())
+    target_column = infer_target_column(data, None)
+
+    features, _ = build_feature_matrix(data, target_column)
+
+    assert "hour_sin" not in features.columns
+    assert "lat_lon_interaction" in features.columns
+    assert "latitude_squared" in features.columns
 
 
 def test_downscaler_trains_and_reports_metrics():
@@ -94,8 +106,9 @@ def test_evaluate_models_returns_baseline_comparison():
     assert set(comparison["model_name"]) == {
         "linear_regression",
         "spatial_knn",
+        "hist_gradient_boosting",
+        "extra_trees",
         "random_forest",
-        "gradient_boosting",
     }
     assert comparison["rmse"].is_monotonic_increasing
     assert "actual" in predictions.columns
@@ -122,3 +135,20 @@ def test_save_model_comparison_writes_prediction_map(tmp_path):
 
     assert (tmp_path / "model_comparison.csv").exists()
     assert (tmp_path / "prediction_map.png").exists()
+
+
+def test_spatial_cross_validate_models_returns_summary():
+    data = normalise_columns(make_synthetic_no2_data())
+    target_column = infer_target_column(data, None)
+    features, target = build_feature_matrix(data, target_column)
+
+    summary = spatial_cross_validate_models(features, target, n_splits=3)
+
+    assert "r2_mean" in summary.columns
+    assert set(summary["model_name"]) == {
+        "linear_regression",
+        "spatial_knn",
+        "hist_gradient_boosting",
+        "extra_trees",
+        "random_forest",
+    }
