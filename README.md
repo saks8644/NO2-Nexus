@@ -1,67 +1,146 @@
 # NO2 Nexus
 
-**NO2 Nexus** is an advanced machine learning model designed to transform coarse-resolution satellite data into high-resolution maps of Nitrogen Dioxide (NO2) concentrations. By leveraging machine learning techniques, NO2 Nexus enhances air quality monitoring, offering detailed insights into NO2 distribution for researchers, policymakers, and urban planners.
-## Data Source
+NO2 Nexus is a reproducible machine learning pipeline for estimating fine-grained
+Nitrogen Dioxide (NO2) concentration patterns from coarse satellite-style
+measurements and auxiliary spatial features.
 
-The coarse-resolution spatial data for this model is obtained from Google Earth Engine's Sentinel-5P satellite. Specifically, the dataset used is the Nitrogen Dioxide (NO2) column number density, provided by the Sentinel-5P satellite's TROPOspheric Monitoring Instrument (TROPOMI).
+The project uses a Random Forest regressor as a strong, interpretable baseline:
+it handles nonlinear interactions, works well on tabular geospatial features, and
+provides feature-importance diagnostics that are easy to explain in an ML review.
 
 ![no2](https://github.com/user-attachments/assets/15acf3fb-37a9-48df-b160-13f51da3db3f)
 
+## Why This Project Matters
 
+High-resolution air-quality maps help researchers, planners, and public-health
+teams understand pollution exposure at a more actionable spatial scale. Satellite
+products such as Sentinel-5P/TROPOMI provide valuable NO2 observations, but the
+raw spatial resolution is often too coarse for neighborhood-level decisions.
 
-## Features
+NO2 Nexus demonstrates the ML workflow needed for a downscaling experiment:
 
-- **High-Resolution NO2 Mapping:** Converts coarse-resolution satellite NO2 data into fine-resolution maps for more detailed spatial analysis.
-- **Machine Learning Model:** Utilizes Random Forest Regression to predict NO2 concentrations based on spatial and temporal features, ensuring high accuracy.
-- **Model Validation:** Includes evaluation metrics such as RMSE (Root Mean Squared Error) and R² score to validate model performance.
-- **Visualization Tools:** Provides residual plots, feature importance charts, and prediction vs. actual value plots to facilitate comprehensive analysis.
-- **Customizable:** Easily adapt the model by updating file paths and parameters to fit different datasets and regions.
+- clean and validate tabular geospatial features
+- train a reproducible Random Forest model
+- evaluate with RMSE, MAE, and R2
+- export prediction and feature-importance artifacts
+- generate diagnostic plots for model inspection
+
+## Repository Structure
+
+```text
+.
+├── model.ipynb              # Original exploratory notebook
+├── pyproject.toml           # Installable package metadata
+├── requirements.txt         # Runtime and test dependencies
+├── src/no2_nexus/
+│   ├── cli.py               # Command-line training entry point
+│   └── pipeline.py          # Data validation, training, metrics, plots
+└── tests/
+    └── test_pipeline.py     # Unit tests with synthetic NO2-like data
+```
 
 ## Installation
 
-To use NO2 Nexus, you need Python and the required packages. Follow these steps to set up your environment:
+```bash
+git clone https://github.com/saks8644/NO2-Nexus.git
+cd NO2-Nexus
+python -m venv .venv
+.venv\Scripts\activate
+pip install -e ".[dev]"
+```
 
-1. **Clone the Repository:**
+On macOS/Linux, activate the environment with:
 
-   ```bash
-   git clone https://github.com/your-username/no2-nexus.git
-   cd no2-nexus
-2. **Create a Virtual Environment (Optional but Recommended):**
-   python -m venv env
-   source env/bin/activate  # On Windows, use `env\Scripts\activate`
-3. **Install Dependencies:**
-   pip install -r requirements.txt
+```bash
+source .venv/bin/activate
+```
+
+## Input Data
+
+Use a CSV file with numeric feature columns and one numeric target column. Common
+target names such as `target_NO2`, `ground_truth_NO2`, `observed_NO2`, and
+`NO2_target` are detected automatically. If your target has a different name,
+pass it with `--target`.
+
+Example columns:
+
+```text
+latitude, longitude, coarse_NO2, traffic_index, population_density, target_NO2
+```
+
+The pipeline normalizes column names, removes rows with missing or infinite
+modeling values, and uses all numeric non-target columns as features unless
+specific features are provided.
+
 ## Usage
-Prepare Your Data:
-Ensure you have a TIFF file containing NO2 data. Update the file path in the script to point to your data.
-Run the Model:
-Execute the Python script to preprocess the data, train the model, and generate high-resolution NO2 maps: python no2_nexus.py
-## The script performs the following tasks:
 
-- Loads and preprocesses the TIFF file.
-- Trains the Random Forest model with the data.
-- Validates the model using metrics and generates visualizations.
-- Produces a fine-resolution NO2 map and displays it.
-## Model Details
-- File Path: Update the tif_file variable in the script with the path to your TIFF file.
-- Temporal Features: The current setup is for the year 2019 and month 6. Adjust as needed for other time periods.
-- Model Parameters: Default parameters for the Random Forest Regressor are used, but these can be modified in the code.
-## Visualizations
-The model generates the following visualizations:
+Train and evaluate the model:
 
-- Fine Resolution NO2 Map: Provides a detailed map of predicted NO2 concentrations.
-  ![no2 plot](https://github.com/user-attachments/assets/a96bee29-81fb-4e12-ab38-5ed42bc5da4d)
-  
-- Residual Plot: Displays residuals versus actual values to evaluate model errors.
-  ![residual plt](https://github.com/user-attachments/assets/722fee7d-2b45-450f-acb1-dbd906002fcd)
+```bash
+no2-nexus --data data/no2_training.csv --target target_NO2 --output-dir outputs
+```
 
-- Feature Importances: Shows the importance of each feature used in the model.
-- ![feature imp](https://github.com/user-attachments/assets/5bf75ee2-bdf9-4d4c-8a30-571204052518)
+Try the included synthetic sample dataset:
 
-- Prediction vs Actual Plot: Compares predicted values with actual values to assess model accuracy.
-  ![pre vs act](https://github.com/user-attachments/assets/e75c2385-3dbc-45d5-b9cb-3da5d3b051f2)
+```bash
+no2-nexus --data data/sample_no2.csv --target target_NO2 --output-dir outputs/sample_run
+```
 
+Or run it as a module:
 
+```bash
+python -m no2_nexus.cli --data data/no2_training.csv --target target_NO2
+```
+
+Optional feature selection:
+
+```bash
+no2-nexus ^
+  --data data/no2_training.csv ^
+  --target target_NO2 ^
+  --features latitude longitude coarse_NO2 traffic_index population_density
+```
+
+The command prints evaluation metrics and writes:
+
+- `outputs/predictions.csv`
+- `outputs/feature_importance.csv`
+- `outputs/actual_vs_predicted.png`
+- `outputs/residuals.png`
+- `outputs/feature_importance.png`
+
+## Model Evaluation
+
+The CLI reports:
+
+- **RMSE:** penalizes large NO2 prediction errors
+- **MAE:** average absolute prediction error
+- **R2:** explained variance on the held-out test split
+
+The exported plots help diagnose whether the model is biased, whether errors
+grow for higher NO2 values, and which features drive predictions.
+
+## Development Checks
+
+Run tests before sharing changes:
+
+```bash
+pytest
+```
+
+The tests cover column normalization, target/feature validation, missing-value
+handling, and end-to-end model training on deterministic synthetic data.
+
+## Next Improvements
+
+- Add a small public sample dataset or a documented Google Earth Engine export
+  recipe.
+- Compare Random Forest with gradient boosting and a spatial cross-validation
+  split.
+- Add raster export support for generating GeoTIFF prediction maps.
+- Track experiments with MLflow or Weights & Biases for stronger reproducibility.
 
 ## Contact
-For support, questions, or contributions, please contact sakshambalsane19@gmail.com.        
+
+For support, questions, or contributions, contact Saksham Balsane at
+sakshambalsane19@gmail.com.
